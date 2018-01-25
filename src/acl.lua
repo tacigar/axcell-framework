@@ -6,8 +6,11 @@
 local util = require "axcell.util"
 
 -- Forward declarations.
+local ValueAny
+local ValueData
 local Formula
 local FormulaBinary
+local FormulaFact
 local FormulaNegation
 local FormulaResource
 local FormulaType
@@ -368,6 +371,159 @@ function FormulaResource:__tostring()
 end
 
 -------------------------------------------------
+-- FormulaFact class.
+FormulaFact = {}
+FormulaFact.__index = FormulaFact
+
+function FormulaFact.new(name)
+	return function(params)
+		return setmetatable({
+			name = name,
+			type = FormulaType.FACT,
+			principal = params[1],
+			data = params[2],
+		}, FormulaFact)
+	end
+end
+
+setmetatable(FormulaFact, {
+	__call = function(_, name)
+		return FormulaFact.new(name)
+	end,
+	__index = Formula,
+})
+
+function FormulaFact:clone(cloningType)
+	if cloningType == CloningType.BIDIRECTIONAL then
+		local f = FormulaFact(self.name){
+			self.principal,
+			self.data,
+		}
+		if self.parent then
+			self.parent:clone(CloningType.BIDIRECTIONAL, self, f)
+		end
+		return f
+	elseif cloningType == CloningType.SUCCEEDING then
+		return FormulaFact(self.name){
+			self.principal,
+			self.data,
+		}
+	end
+end
+
+function FormulaFact:match(other)
+	if self.type ~= other.type or self.name ~= other.name then
+		return false, nil
+	end
+	local pb, pcaps = self.principal:match(other.principal)
+	if not pb then
+		return false, nil
+	end
+	local db, dcaps = self.data:match(other.data)
+	if not db then
+		return false, nil
+	end
+	return true, {
+		lhs = util.table.merge(pcaps.lhs, dcaps.lhs),
+		rhs = util.table.merge(pcaps.rhs, dcaps.rhs),
+	}
+end
+
+function FormulaFact:__tostring()
+	return string.format("Fact\"%s\"{%s, %s}", self.name, tostring(self.principal), tostring(self.data))
+end
+
+
+-------------------------------------------------
+-- ValueType enum.
+local _ValueType = {
+	DATA = 1,
+	ANY  = 2,
+}
+
+local ValueType = setmetatable({}, {
+   __index = function(_, key)
+	   if _ValueType[key] then
+		   return _ValueType[key]
+	   end
+	   error(string.format("ValueType don't have such a value: %s", key))
+   end,
+   __newindex = function(_, _, _)
+	   error("Attempt to modify read-only table: ValueType")
+   end,
+   __metatable = false,
+})
+-------------------------------------------------
+-- ValueData class.
+ValueData = {}
+ValueData.__index = ValueData
+
+function ValueData.new(data)
+	return setmetatable({
+		data = data,
+		type = ValueType.DATA,
+	}, ValueData)
+end
+
+setmetatable(ValueData, {
+	__call = function(data)
+		return ValueData.new(data)
+	end,
+})
+
+function ValueData:match(other)
+	if other.type == ValueType.DATA then
+		if util.table.deepEquals(self.data, other.data) then
+			return true, { lhs = {}, rhs = {} }
+		else
+			return false, nil
+		end
+	else -- ValueType.ANY
+		return true, {
+			lhs = {},
+			rhs = { [other.name] = self },
+		}
+	end
+end
+
+function ValueData:__tostring()
+	return string.format("Data{%s}", tostring(self.data))
+end
+
+-------------------------------------------------
+-- Any class.
+ValueAny = {}
+ValueAny.__index = ValueAny
+
+function ValueAny.new(name)
+	return setmetatable({
+		name = name,
+		type = ValueType.ANY,
+	}, ValueAny)
+end
+
+setmetatable(ValueAny, {
+	__call = function(name)
+		return ValueAny.new(name)
+	end,
+})
+
+function ValueAny:match(other)
+	if other.type == ValueType.ANY then
+		return true, { lhs = {}, rhs = {} }
+	else
+		return true, {
+			lhs = { [self.name] = other },
+			rhs = {},
+		}
+	end
+end
+
+function ValueAny:__tostring()
+	return string.format("Any\"%s\"", self.name)
+end
+
+-------------------------------------------------
 -- PrincipalType enum.
 local _PrincipalType = {
 	PNAME        = 1, -- No alias
@@ -388,7 +544,6 @@ PrincipalType = setmetatable({}, {
 	end,
 	__metatable = false,
 })
-
 
 -------------------------------------------------
 -- Principal class.
@@ -500,6 +655,23 @@ end
 
 function PrincipalName:clone()
 	return PrincipalName(self.name)
+end
+
+function PrincipalName:match(other)
+	if other.type == PrincipalType.PNAME then
+		if self.name == other.name then
+			return true, { lhs = {}, rhs = {} }
+		else
+			return false, nil
+		end
+	elseif other.type == PrincipalType.VARIABLE then
+		return true, {
+			lhs = {},
+			rhs = { [other.name] = self },
+		}
+	else
+		error("matching error.")
+	end
 end
 
 function PrincipalName:__tostring()
@@ -620,6 +792,25 @@ function ReferenceMonitor:_deriveResource(target)
 	return false, nil
 end
 
+function ReferenceMonitor:_deriveFact(target)
+	local function find(formula)
+		local b, caps = target:match(formula)
+		if b then
+			return true, formula, caps
+		elseif formula.type == FormulaType.IMPLICATION then
+			return find(formula.rhs)
+		end
+		return false, nil, nil
+	end
+
+	for _, formula in ipairs(self.formulas) do
+		local b, f, caps = find(formula)
+		if b then
+			print(b, f)
+		end
+	end
+end
+
 function ReferenceMonitor:_deriveSays(target)
 	-- @TODO : SpeaksFor Rule
 	local function find(formula)
@@ -655,7 +846,7 @@ function ReferenceMonitor:derive(target)
 	elseif target.type == FormulaType.RESOURCE then
 		return self:_deriveResource(target)
 	elseif target.type == FormulaType.FACT then
-
+		return self:_deriveFact(target)
 	elseif target.type == FormulaType.IMPLICATION then
 
 	elseif target.type == FormulaType.SPEAKS_FOR then
@@ -666,8 +857,11 @@ function ReferenceMonitor:derive(target)
 end
 
 return {
+	ValueAny           = ValueAny,
+	ValueData          = ValueData,
 	Formula            = Formula,
 	FormulaBinary      = FormulaBinary,
+	FormulaFact        = FormulaFact,
 	FormulaNegation    = FormulaNegation,
 	FormulaResource    = FormulaResource,
 	FormulaType        = FormulaType,
@@ -677,8 +871,10 @@ return {
 	PrincipalType      = PrincipalType,
 	PrincipalVariable  = PrincipalVariable,
 	ReferenceMonitor   = ReferenceMonitor,
-
 	-- Aliases
+	Any                = ValueAny,
+	Data               = ValueData,
+	Fact               = FormulaFact,
 	PName              = PrincipalName,
 	PVar               = PrincipalVariable,
 	Resource           = FormulaResource,
