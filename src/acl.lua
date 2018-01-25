@@ -3,6 +3,8 @@
 -- Copyright (C) 2017 tacigar
 --
 
+local util = require "axcell.util"
+
 -- Forward declarations.
 local Formula
 local FormulaBinary
@@ -216,6 +218,24 @@ function FormulaBinary:clone(cloningType, ...)
 	end
 end
 
+function FormulaBinary:match(other)
+	if self.type ~= other.type then
+		return false, nil
+	end
+	local lb, lcaps = self.lhs:match(other.lhs)
+	if not lb then
+		return false, nil
+	end
+	local rb, rcaps = self.rhs:match(other.rhs)
+	if not rb then
+		return false, nil
+	end
+	return true, {
+		lhs = util.table.merge(lcaps.lhs, rcaps.lhs),
+		rhs = util.table.merge(lcaps.rhs, rcaps.rhs),
+	}
+end
+
 function FormulaBinary:__tostring()
 	if self.type == FormulaType.IMPLICATION then
 		return string.format("(%s) \u{2283} (%s)", tostring(self.lhs), tostring(self.rhs))
@@ -322,6 +342,24 @@ function FormulaResource:clone(cloningType)
 		return f
 	elseif cloningType == CloningType.SUCCEEDING then
 		return FormulaResource(self.name)
+	end
+end
+
+function FormulaResource:equals(other)
+	if other.type ~= FormulaType.RESOURCE then
+		return false
+	end
+	return self.name == other.name
+end
+
+function FormulaResource:match(other)
+	if other.type ~= FormulaType.RESOURCE then
+		return false, nil
+	end
+	if self.name == other.name then
+		return true, { lhs = {}, rhs = {} }
+	else
+		return false, nil
 	end
 end
 
@@ -512,6 +550,19 @@ function PrincipalVariable:clone()
 	return PrincipalVariable(self.name)
 end
 
+function PrincipalVariable:match(other)
+	if other.type == PrincipalType.VARIABLE then
+		return true, { lhs = {}, rhs = {} }
+	elseif other.type == PrincipalType.PNAME then
+		return true, {
+			lhs = { [self.name] = other },
+			rhs = {},
+		}
+	else
+		error("matching error.")
+	end
+end
+
 function PrincipalVariable:__tostring()
 	return string.format("PVar{\"%s\"}", self.name)
 end
@@ -536,6 +587,81 @@ setmetatable(ReferenceMonitor, {
 function ReferenceMonitor:addFormula(formulas)
 	for _, formula in ipairs(formulas) do
 		table.insert(self.formulas, formula)
+	end
+end
+
+function ReferenceMonitor:_deriveRecImplication(target)
+	if not target.parent then
+		local b, _ = self:derive(target.lhs)
+		return b
+	else
+
+	end
+end
+
+function ReferenceMonitor:_deriveResource(target)
+	local function find(formula)
+		if (target:equals(formula)) then
+			return true, formula
+		elseif formula.type == FormulaType.IMPLICATION then
+			return find(formula.rhs)
+		end
+		return false, nil
+	end
+	for _, formula in ipairs(self.formulas) do
+		local b, f = find(formula)
+		if b then
+			local b1 = self:_deriveRecImplication(f.parent)
+			if b1 then
+				return true, {}
+			end
+		end
+	end
+	return false, nil
+end
+
+function ReferenceMonitor:_deriveSays(target)
+	-- @TODO : SpeaksFor Rule
+	local function find(formula)
+		local b, caps = target:match(formula)
+		if b then
+			return true, formula, caps
+		elseif formula.type == FormulaType.IMPLICATION then
+			return find(formula.rhs)
+		end
+		return false, nil, nil
+	end
+
+	for _, formula in ipairs(self.formulas) do
+		local b, f, caps = find(formula)
+		if b then
+			if f.parent then
+				-- @TODO : fill
+				self:_deriveRecImplication(f.parent)
+			else
+				return true, caps.lhs
+			end
+		end
+	end
+end
+
+function ReferenceMonitor:derive(target)
+	if target.type == FormulaType.LOGICAL_AND then
+
+	elseif target.type == FormulaType.LOGICAL_OR then
+
+	elseif target.type == FormulaType.NEGATION then
+
+	elseif target.type == FormulaType.RESOURCE then
+		return self:_deriveResource(target)
+	elseif target.type == FormulaType.FACT then
+
+	elseif target.type == FormulaType.IMPLICATION then
+
+	elseif target.type == FormulaType.SPEAKS_FOR then
+
+	elseif target.type == FormulaType.SAYS then
+		return self:_deriveSays(target)
 	end
 end
 
