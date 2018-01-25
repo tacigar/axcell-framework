@@ -241,6 +241,7 @@ function FormulaBinary:match(other)
 end
 
 function FormulaBinary:fill(caps, cloningType, ...)
+	cloningType = cloningType or CloningType.BIDIRECTIONAL
 	if cloningType == CloningType.BIDIRECTIONAL then
 		local args = {...}
 		local caller = args[1]
@@ -421,6 +422,10 @@ function FormulaResource:match(other)
 	else
 		return false, nil
 	end
+end
+
+function FormulaResource:fill(_, cloningType)
+	return self:clone(cloningType)
 end
 
 function FormulaResource:__tostring()
@@ -896,6 +901,43 @@ function ReferenceMonitor:_deriveRecImplication(target)
 	end
 end
 
+function ReferenceMonitor:_deriveLogicalAnd(target)
+	local res, capss = false, {}
+	local lb, lcapss = self:derive(target.lhs)
+	if not lb then
+		return false, nil
+	else
+		for _, lcaps in ipairs(lcapss) do
+			local f = target:fill(lcaps)
+			local rb, rcapss = self:derive(f.rhs)
+			if rb then
+				res = true
+				for _, rcaps in ipairs(rcapss) do
+					table.insert(capss, util.table.merge(lcaps, rcaps))
+				end
+			end
+		end
+	end
+	if res then
+		return true, capss
+	else
+		return false, nil
+	end
+end
+
+function ReferenceMonitor:_deriveLogicalOr(target)
+	local lb, lcapss = self:derive(target.lhs)
+	if lb then
+		return true, lcapss
+	else
+		local rb, rcapss = self:derive(target.rhs)
+		if rb then
+			return true, rcapss
+		end
+	end
+	return false, nil
+end
+
 function ReferenceMonitor:_deriveResource(target)
 	local function find(formula)
 		if (target:equals(formula)) then
@@ -933,19 +975,24 @@ function ReferenceMonitor:_deriveFact(target)
 	for _, formula in ipairs(self.formulas) do
 		local b, f, caps = find(formula)
 		if b then
-			f = f:fill(caps.rhs)
-			local b1, capss1 = self:_deriveRecImplication(f.parent)
-			if b1 then -- derivable
-				res = true
-				if #capss1 > 0 then
-					for _, caps1 in ipairs(capss1) do
-						local f2 = f:fill(caps1)
-						local _, caps2 = f2:match(target)
-						table.insert(capss, caps2.rhs)
+			if f.parent then
+				f = f:fill(caps.rhs)
+				local b1, capss1 = self:_deriveRecImplication(f.parent)
+				if b1 then -- derivable
+					res = true
+					if #capss1 > 0 then
+						for _, caps1 in ipairs(capss1) do
+							local f2 = f:fill(caps1)
+							local _, caps2 = f2:match(target)
+							table.insert(capss, caps2.rhs)
+						end
+					else
+						table.insert(capss, caps.lhs)
 					end
-				else
-					table.insert(capss, caps.lhs)
 				end
+			else -- Perfect matching
+				res = true
+				table.insert(capss, caps.lhs)
 			end
 		end
 	end
@@ -990,9 +1037,9 @@ end
 
 function ReferenceMonitor:derive(target)
 	if target.type == FormulaType.LOGICAL_AND then
-
+		return self:_deriveLogicalAnd(target)
 	elseif target.type == FormulaType.LOGICAL_OR then
-
+		return self:_deriveLogicalOr(target)
 	elseif target.type == FormulaType.NEGATION then
 
 	elseif target.type == FormulaType.RESOURCE then
