@@ -239,6 +239,62 @@ function FormulaBinary:match(other)
 	}
 end
 
+function FormulaBinary:fill(caps, cloningType, ...)
+	if cloningType == CloningType.BIDIRECTIONAL then
+		local args = {...}
+		local caller = args[1]
+		local newCaller = args[2]
+		if caller == nil then
+			local lhs = self.lhs:fill(caps, CloningType.SUCCEEDING)
+			local rhs = self.rhs:fill(caps, CloningType.SUCCEEDING)
+			local f = FormulaBinary {
+				lhs = lhs,
+				rhs = rhs,
+				type = self.type,
+			}
+			if self.parent then
+				self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+			end
+			return f
+		else
+			if caller == self.lhs then
+				local rhs = self.rhs:fill(caps, CloningType.SUCCEEDING)
+				local f = FormulaBinary {
+					lhs = newCaller,
+					rhs = rhs,
+					type = self.type,
+				}
+				if self.parent then
+					self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+				end
+				return f
+			elseif caller == self.rhs then
+				local lhs = self.lhs:fill(caps, CloningType.SUCCEEDING)
+				local f = FormulaBinary {
+					lhs = lhs,
+					rhs = newCaller,
+					type = self.type,
+				}
+				if self.parent then
+					self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+				end
+				return f
+			else
+				error("Filling error.")
+			end
+		end
+	elseif cloningType == CloningType.SUCCEEDING then
+		local lhs = self.lhs:fill(caps, CloningType.SUCCEEDING)
+		local rhs = self.rhs:fill(caps, CloningType.SUCCEEDING)
+		local f = FormulaBinary {
+			lhs = lhs,
+			rhs = rhs,
+			type = self.type,
+		}
+		return f
+	end
+end
+
 function FormulaBinary:__tostring()
 	if self.type == FormulaType.IMPLICATION then
 		return string.format("(%s) \u{2283} (%s)", tostring(self.lhs), tostring(self.rhs))
@@ -429,6 +485,25 @@ function FormulaFact:match(other)
 	}
 end
 
+function FormulaFact:fill(caps, cloningType)
+	cloningType = cloningType or CloningType.BIDIRECTIONAL
+	if cloningType == CloningType.BIDIRECTIONAL then
+		local f = FormulaFact(self.name){
+			self.principal:fill(caps),
+			self.data:fill(caps),
+		}
+		if self.parent then
+			self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+		end
+		return f
+	elseif cloningType == CloningType.SUCCEEDING then
+		return FormulaFact(self.name){
+			self.principal:fill(caps),
+			self.data:fill(caps),
+		}
+	end
+end
+
 function FormulaFact:__tostring()
 	return string.format("Fact\"%s\"{%s, %s}", self.name, tostring(self.principal), tostring(self.data))
 end
@@ -466,7 +541,7 @@ function ValueData.new(data)
 end
 
 setmetatable(ValueData, {
-	__call = function(data)
+	__call = function(_, data)
 		return ValueData.new(data)
 	end,
 })
@@ -486,6 +561,10 @@ function ValueData:match(other)
 	end
 end
 
+function ValueData:fill(caps)
+	return self
+end
+
 function ValueData:__tostring()
 	return string.format("Data{%s}", tostring(self.data))
 end
@@ -503,7 +582,7 @@ function ValueAny.new(name)
 end
 
 setmetatable(ValueAny, {
-	__call = function(name)
+	__call = function(_, name)
 		return ValueAny.new(name)
 	end,
 })
@@ -516,6 +595,14 @@ function ValueAny:match(other)
 			lhs = { [self.name] = other },
 			rhs = {},
 		}
+	end
+end
+
+function ValueAny:fill(caps)
+	if caps[self.name] then
+		return caps[self.name]
+	else
+		return self
 	end
 end
 
@@ -674,6 +761,10 @@ function PrincipalName:match(other)
 	end
 end
 
+function PrincipalName:fill()
+	return self:clone()
+end
+
 function PrincipalName:__tostring()
 	return string.format("PName{\"%s\"}", self.name)
 end
@@ -735,6 +826,14 @@ function PrincipalVariable:match(other)
 	end
 end
 
+function PrincipalVariable:fill(caps)
+	if caps[self.name] then
+		return caps[self.name]:clone()
+	else
+		return self:clone()
+	end
+end
+
 function PrincipalVariable:__tostring()
 	return string.format("PVar{\"%s\"}", self.name)
 end
@@ -764,8 +863,7 @@ end
 
 function ReferenceMonitor:_deriveRecImplication(target)
 	if not target.parent then
-		local b, _ = self:derive(target.lhs)
-		return b
+		return self:derive(target.lhs)
 	else
 
 	end
@@ -780,10 +878,11 @@ function ReferenceMonitor:_deriveResource(target)
 		end
 		return false, nil
 	end
+
 	for _, formula in ipairs(self.formulas) do
 		local b, f = find(formula)
 		if b then
-			local b1 = self:_deriveRecImplication(f.parent)
+			local b1, _ = self:_deriveRecImplication(f.parent)
 			if b1 then
 				return true, {}
 			end
@@ -803,11 +902,30 @@ function ReferenceMonitor:_deriveFact(target)
 		return false, nil, nil
 	end
 
+	local res, capss = false, {}
 	for _, formula in ipairs(self.formulas) do
 		local b, f, caps = find(formula)
 		if b then
-			print(b, f)
+			f = f:fill(caps.rhs)
+			local b1, capss1 = self:_deriveRecImplication(f.parent)
+			if b1 then -- derivable
+				res = true
+				if #capss1 > 0 then
+					for _, caps1 in ipairs(capss1) do
+						local f2 = f:fill(caps1)
+						local _, caps2 = f2:match(target)
+						table.insert(capss, caps2.rhs)
+					end
+				else
+					table.insert(capss, caps.lhs)
+				end
+			end
 		end
+	end
+	if res then
+		return true, capss
+	else
+		return false, nil
 	end
 end
 
@@ -823,16 +941,23 @@ function ReferenceMonitor:_deriveSays(target)
 		return false, nil, nil
 	end
 
+	local res, capss = false, {}
 	for _, formula in ipairs(self.formulas) do
 		local b, f, caps = find(formula)
 		if b then
 			if f.parent then
 				-- @TODO : fill
 				self:_deriveRecImplication(f.parent)
-			else
-				return true, caps.lhs
+			else -- Perfect matching
+				res = true
+				table.insert(capss, caps.lhs)
 			end
 		end
+	end
+	if res then
+		return true, capss
+	else
+		return false, nil
 	end
 end
 
