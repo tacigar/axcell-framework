@@ -12,6 +12,7 @@ local Formula
 local FormulaBinary
 local FormulaFact
 local FormulaNegation
+local FormulaPredicate
 local FormulaResource
 local FormulaType
 local Principal
@@ -508,6 +509,32 @@ function FormulaFact:__tostring()
 	return string.format("Fact\"%s\"{%s, %s}", self.name, tostring(self.principal), tostring(self.data))
 end
 
+-------------------------------------------------
+-- FormulaPredicate class.
+FormulaPredicate = {}
+FormulaPredicate.__index = FormulaPredicate
+
+function FormulaPredicate.new(pred)
+	return setmetatable({}, {
+		__call = function(_, arg)
+			return setmetatable({
+				arg = arg,
+				type = FormulaType.PREDICATE,
+			}, {
+				__call = function(self) -- invoke pred function
+					return pred(self.arg.data)
+				end,
+				__index = Formula,
+			})
+		end,
+	})
+end
+
+setmetatable(FormulaPredicate, {
+	__call = function(_, pred)
+		return FormulaPredicate.new(pred)
+	end,
+})
 
 -------------------------------------------------
 -- ValueType enum.
@@ -561,7 +588,7 @@ function ValueData:match(other)
 	end
 end
 
-function ValueData:fill(caps)
+function ValueData:fill()
 	return self
 end
 
@@ -988,6 +1015,7 @@ return {
 	FormulaBinary      = FormulaBinary,
 	FormulaFact        = FormulaFact,
 	FormulaNegation    = FormulaNegation,
+	FormulaPredicate   = FormulaPredicate,
 	FormulaResource    = FormulaResource,
 	FormulaType        = FormulaType,
 	Principal          = Principal,
@@ -1001,6 +1029,7 @@ return {
 	Data               = ValueData,
 	Fact               = FormulaFact,
 	PName              = PrincipalName,
+	Predicate          = FormulaPredicate,
 	PVar               = PrincipalVariable,
 	Resource           = FormulaResource,
 }
