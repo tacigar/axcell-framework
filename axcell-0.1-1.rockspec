@@ -28,6 +28,8 @@ build = {
 		["axcell.mqtt.async_client"]       = "src/mqtt/async_client.lua",
 		["axcell.mqtt.client"]             = "src/mqtt/client.lua",
 		["axcell.mqtt.client_base"]        = "src/mqtt/client_base.lua",
+		["axcell.util"]                    = "src/util.lua",
+		["axcell.util.table"]              = "src/util/table.lua",
 		-- C Codes.
 		["axcell.mqtt.core"] = {
 			sources = { "src/mqtt/mqtt.c" },
