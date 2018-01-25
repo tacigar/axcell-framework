@@ -115,6 +115,11 @@ function Formula:logicalOr(other)
 end
 Formula.lor = Formula.logicalOr -- alias
 
+function Formula:negation()
+	return FormulaNegation(self:clone(CloningType.BIDIRECTIONAL))
+end
+Formula.neg = Formula.negation
+
 function Formula:getType()
 	return self.type
 end
@@ -938,6 +943,15 @@ function ReferenceMonitor:_deriveLogicalOr(target)
 	return false, nil
 end
 
+function ReferenceMonitor:_deriveNegation(target)
+	local b, _ = self:derive(target.operand)
+	if not b then
+		return true, {}
+	else
+		return false, nil
+	end
+end
+
 function ReferenceMonitor:_deriveResource(target)
 	local function find(formula)
 		if (target:equals(formula)) then
@@ -1041,7 +1055,7 @@ function ReferenceMonitor:derive(target)
 	elseif target.type == FormulaType.LOGICAL_OR then
 		return self:_deriveLogicalOr(target)
 	elseif target.type == FormulaType.NEGATION then
-
+		return self:_deriveNegation(target)
 	elseif target.type == FormulaType.RESOURCE then
 		return self:_deriveResource(target)
 	elseif target.type == FormulaType.FACT then
