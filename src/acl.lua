@@ -975,7 +975,43 @@ function ReferenceMonitor:_deriveRecImplication(target)
 	if not target.parent then
 		return self:derive(target.lhs)
 	else
-
+		local res, capss = false, {}
+		local b1, capss1 = self:derive(target.lhs)
+		if not b1 then
+			return false, nil
+		end
+		if #capss1 > 0 then
+			for _, caps1 in ipairs(capss1) do
+				local f = target:fill(caps1)
+				local b2, capss2 = self:_deriveRecImplication(f.parent)
+				if b2 then
+					res = true
+					if #capss2 > 0 then
+						for _, caps2 in ipairs(capss2) do
+							table.insert(capss, util.table.merge(caps1, caps2))
+						end
+					else
+						table.insert(capss, caps1)
+					end
+				end
+			end
+		else
+			local f = target:clone()
+			local b2, capss2 = self:_deriveRecImplication(f.parent)
+			if b2 then
+				res = true
+				if #capss2 > 0 then
+					for _, caps2 in ipairs(capss2) do
+						table.insert(capss, caps2)
+					end
+				end
+			end
+		end
+		if res then
+			return true, capss
+		else
+			return false, nil
+		end
 	end
 end
 
@@ -985,17 +1021,30 @@ function ReferenceMonitor:_deriveLogicalAnd(target)
 	if not lb then
 		return false, nil
 	else
-		for _, lcaps in ipairs(lcapss) do
-			local f = target:fill(lcaps)
+		if #lcapss > 0 then
+			for _, lcaps in ipairs(lcapss) do
+				local f = target:fill(lcaps)
+				local rb, rcapss = self:derive(f.rhs)
+				if rb then
+					res = true
+					if #rcapss > 0 then
+						for _, rcaps in ipairs(rcapss) do
+							table.insert(capss, util.table.merge(lcaps, rcaps))
+						end
+					else
+						table.insert(capss, lcaps)
+					end
+				end
+			end
+		else
+			local f = target:clone()
 			local rb, rcapss = self:derive(f.rhs)
 			if rb then
 				res = true
 				if #rcapss > 0 then
 					for _, rcaps in ipairs(rcapss) do
-						table.insert(capss, util.table.merge(lcaps, rcaps))
+						table.insert(capss, rcaps)
 					end
-				else
-					table.insert(capss, lcaps)
 				end
 			end
 		end
@@ -1269,15 +1318,18 @@ end
 function ReferenceMonitor:derive(target)
 	local function unique(capss)
 		local deletes = {}
+		if #capss <= 1 then
+			return
+		end
 		for i = 1, #capss do
 			for j = i + 1, #capss do
 				for k, v in pairs(capss[i]) do
-					if not v:equals(capss[j][k]) then
+					if capss[j][k] and (not v:equals(capss[j][k])) then
 						goto CONTINUE
 					end
 				end
 				for k, v in pairs(capss[j]) do
-					if not v:equals(capss[i][k]) then
+					if capss[i][k] and (not v:equals(capss[i][k])) then
 						goto CONTINUE
 					end
 				end
