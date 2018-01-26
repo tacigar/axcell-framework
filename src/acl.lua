@@ -961,8 +961,12 @@ function ReferenceMonitor:_deriveLogicalAnd(target)
 			local rb, rcapss = self:derive(f.rhs)
 			if rb then
 				res = true
-				for _, rcaps in ipairs(rcapss) do
-					table.insert(capss, util.table.merge(lcaps, rcaps))
+				if #rcapss > 0 then
+					for _, rcaps in ipairs(rcapss) do
+						table.insert(capss, util.table.merge(lcaps, rcaps))
+					end
+				else
+					table.insert(capss, lcaps)
 				end
 			end
 		end
@@ -1074,7 +1078,7 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 		local b, caps = target:match(formula)
 		if b then
 			return true, formula, caps
-		elseif formula.type == Formula.IMPLICATION then
+		elseif formula.type == FormulaType.IMPLICATION then
 			return find(formula.rhs)
 		end
 		return false, nil, nil
@@ -1107,8 +1111,26 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 			if b then
 				f = f:fill(caps.rhs)
 				if f.parent then
-					return self:_deriveRecImplication(f.parent)
-				else
+					local b1, capss1 = self:_deriveRecImplication(f.parent)
+					if b1 then -- derivable
+						if #capss1 > 0 then
+							for _, caps1 in ipairs(capss1) do
+								local f1 = f:fill(caps1)
+								local _, caps2 = f1:match(target)
+								table.insert(capss, caps2.rhs)
+							end
+						else
+							table.insert(capss, caps.lhs)
+						end
+						-- For Transitivity
+						local b2, capss2 = self:derive(f.rhs:speaksFor(PrincipalVariable"__X"))
+						if b2 then
+							for _, caps2 in ipairs(capss2) do
+								table.insert(capss, { [target.rhs.name] = caps2["__X"] })
+							end
+						end
+					end
+				else -- Perfect matching.
 					table.insert(capss, caps.lhs)
 					-- For Transitivity
 					local b2, capss2 = self:derive(f.rhs:speaksFor(PrincipalVariable"__X"))
@@ -1118,6 +1140,7 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 						end
 					end
 				end
+
 			end
 		end
 		return true, capss
@@ -1133,7 +1156,7 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 				else
 					table.insert(capss, caps.lhs)
 					-- For Transitivity
-					local b2, capss2 = self:dervie(PrincipalVariable"__X":speaksFor(f.lhs))
+					local b2, capss2 = self:derive(PrincipalVariable"__X":speaksFor(f.lhs))
 					if b2 then
 						for _, caps2 in ipairs(capss2) do
 							table.insert(capss, { [target.lhs.name] = caps2["__X"] })
