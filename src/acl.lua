@@ -1086,10 +1086,63 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 			return true, {}
 		end
 
-		local f = target.lhs:speaksFor(PrincipalVariable"X")
-			:land(PrincipalVariable"X":speaksFor(target.rhs))
 		-- Transitivity of SpeaksFor Rule.
-		return self:derive(f)
+		local b, capss = self:derive(target.lhs:speaksFor(PrincipalVariable"__X"))
+		if b then
+			for _, caps in ipairs(capss) do
+				if not caps["__X"]:equals(target.lhs) then -- Avoid unlimited loops.
+					local b2, _ = self:derive(caps["__X"]:speaksFor(target.rhs))
+					if b2 then
+						return true, {}
+					end
+				end
+			end
+		end
+		return false, nil
+	elseif target.lhs.type == PrincipalType.PNAME and target.rhs.type == PrincipalType.VARIABLE then
+		local capss = {}
+		table.insert(capss, { [target.rhs.name] = target.lhs })
+		for _, formula in ipairs(self.formulas) do
+			local b, f, caps = find(formula)
+			if b then
+				f = f:fill(caps.rhs)
+				if f.parent then
+					return self:_deriveRecImplication(f.parent)
+				else
+					table.insert(capss, caps.lhs)
+					-- For Transitivity
+					local b2, capss2 = self:derive(f.rhs:speaksFor(PrincipalVariable"__X"))
+					if b2 then
+						for _, caps2 in ipairs(capss2) do
+							table.insert(capss, { [target.rhs.name] = caps2["__X"] })
+						end
+					end
+				end
+			end
+		end
+		return true, capss
+	elseif target.lhs.type == PrincipalType.VARIABLE and target.rhs.type == PrincipalType.PNAME then
+		local capss = {}
+		table.insert(capss, { [target.lhs.name] = target.rhs })
+		for _, formula in ipairs(self.formulas) do
+			local b, f, caps = find(formula)
+			if b then
+				f = f:fill(caps.rhs)
+				if f.parent then
+					return self:_deriveRecImplication(f.parent)
+				else
+					table.insert(capss, caps.lhs)
+					-- For Transitivity
+					local b2, capss2 = self:dervie(PrincipalVariable"__X":speaksFor(f.lhs))
+					if b2 then
+						for _, caps2 in ipairs(capss2) do
+							table.insert(capss, { [target.lhs.name] = caps2["__X"] })
+						end
+					end
+				end
+			end
+		end
+		return true, capss
 	else
 		local res, capss = false, {}
 		for _, formula in ipairs(self.formulas) do
@@ -1144,24 +1197,56 @@ function ReferenceMonitor:_deriveSays(target)
 end
 
 function ReferenceMonitor:derive(target)
+	local function unique(capss)
+		local deletes = {}
+		for i = 1, #capss do
+			for j = i + 1, #capss do
+				for k, v in pairs(capss[i]) do
+					if not v:equals(capss[j][k]) then
+						goto CONTINUE
+					end
+				end
+				for k, v in pairs(capss[j]) do
+					if not v:equals(capss[i][k]) then
+						goto CONTINUE
+					end
+				end
+				table.insert(deletes, j)
+				::CONTINUE::
+			end
+		end
+		if #deletes > 0 then
+			for i = #deletes, 1, -1 do
+				table.remove(capss, deletes[i])
+			end
+		end
+	end
+
+	local b, capss
 	if target.type == FormulaType.LOGICAL_AND then
-		return self:_deriveLogicalAnd(target)
+		b, capss = self:_deriveLogicalAnd(target)
 	elseif target.type == FormulaType.LOGICAL_OR then
-		return self:_deriveLogicalOr(target)
+		b, capss = self:_deriveLogicalOr(target)
 	elseif target.type == FormulaType.NEGATION then
-		return self:_deriveNegation(target)
+		b, capss = self:_deriveNegation(target)
 	elseif target.type == FormulaType.RESOURCE then
-		return self:_deriveResource(target)
+		b, capss = self:_deriveResource(target)
 	elseif target.type == FormulaType.FACT then
-		return self:_deriveFact(target)
+		b, capss = self:_deriveFact(target)
 	elseif target.type == FormulaType.PREDICATE then
-		return self:_derivePredicate(target)
+		b, capss = self:_derivePredicate(target)
 	elseif target.type == FormulaType.IMPLICATION then
 
 	elseif target.type == FormulaType.SPEAKS_FOR then
-		return self:_deriveSpeaksFor(target)
+		b, capss = self:_deriveSpeaksFor(target)
 	elseif target.type == FormulaType.SAYS then
-		return self:_deriveSays(target)
+		b, capss = self:_deriveSays(target)
+	end
+	if b then
+		unique(capss)
+		return true, capss
+	else
+		return false, nil
 	end
 end
 
