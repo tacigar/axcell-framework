@@ -1081,6 +1081,11 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 	end
 
 	if target.lhs.type == PrincipalType.PNAME and target.rhs.type == PrincipalType.PNAME then
+		-- Idempotency of SpeaksFor Rule.
+		if target.lhs:equals(target.rhs) then
+			return true, {}
+		end
+
 		local f = target.lhs:speaksFor(PrincipalVariable"X")
 			:land(PrincipalVariable"X":speaksFor(target.rhs))
 		-- Transitivity of SpeaksFor Rule.
