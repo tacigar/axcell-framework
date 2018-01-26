@@ -59,7 +59,7 @@ local _CloningType = {
 	SUCCEEDING     = 2,
 }
 
-local CloningType = setmetatable({}, {
+CloningType = setmetatable({}, {
 	__index = function(_, key)
 		if _CloningType[key] then
 			return _CloningType[key]
@@ -818,6 +818,13 @@ function PrincipalName:clone()
 	return PrincipalName(self.name)
 end
 
+function PrincipalName:equals(other)
+	if other.type ~= PrincipalType.PNAME then
+		return false
+	end
+	return self.name == other.name
+end
+
 function PrincipalName:match(other)
 	if other.type == PrincipalType.PNAME then
 		if self.name == other.name then
@@ -1054,11 +1061,48 @@ function ReferenceMonitor:_deriveFact(target)
 	end
 end
 
-function ReferenceMonitor:_derivePredicate(target)
+function ReferenceMonitor._derivePredicate(_, target) -- not use `self`
 	if target() then
 		return true, {}
 	else
 		return false, nil
+	end
+end
+
+function ReferenceMonitor:_deriveSpeaksFor(target)
+	local function find(formula)
+		local b, caps = target:match(formula)
+		if b then
+			return true, formula, caps
+		elseif formula.type == Formula.IMPLICATION then
+			return find(formula.rhs)
+		end
+		return false, nil, nil
+	end
+
+	if target.lhs.type == PrincipalType.PNAME and target.rhs.type == PrincipalType.PNAME then
+		local f = target.lhs:speaksFor(PrincipalVariable"X")
+			:land(PrincipalVariable"X":speaksFor(target.rhs))
+		-- Transitivity of SpeaksFor Rule.
+		return self:derive(f)
+	else
+		local res, capss = false, {}
+		for _, formula in ipairs(self.formulas) do
+			local b, f, caps = find(formula)
+			if b then
+				if f.parent then
+					return self:_deriveRecImplication(f.parent)
+				else -- Perfect matching
+					res = true
+					table.insert(capss, caps.lhs)
+				end
+			end
+		end
+		if res then
+			return true, capss
+		else
+			return false, nil
+		end
 	end
 end
 
@@ -1080,7 +1124,7 @@ function ReferenceMonitor:_deriveSays(target)
 		if b then
 			if f.parent then
 				-- @TODO : fill
-				self:_deriveRecImplication(f.parent)
+				return self:_deriveRecImplication(f.parent)
 			else -- Perfect matching
 				res = true
 				table.insert(capss, caps.lhs)
@@ -1110,7 +1154,7 @@ function ReferenceMonitor:derive(target)
 	elseif target.type == FormulaType.IMPLICATION then
 
 	elseif target.type == FormulaType.SPEAKS_FOR then
-
+		return self:_deriveSpeaksFor(target)
 	elseif target.type == FormulaType.SAYS then
 		return self:_deriveSays(target)
 	end
