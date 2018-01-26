@@ -6,8 +6,7 @@
 local util = require "axcell.util"
 
 -- Forward declarations.
-local ValueAny
-local ValueData
+local CloningType
 local Formula
 local FormulaBinary
 local FormulaFact
@@ -21,6 +20,9 @@ local PrincipalName
 local PrincipalType
 local PrincipalVariable
 local ReferenceMonitor
+local ValueAny
+local ValueData
+local ValueType
 
 -------------------------------------------------
 -- FormulaType enum.
@@ -528,13 +530,21 @@ function FormulaPredicate.new(pred)
 	return setmetatable({}, {
 		__call = function(_, arg)
 			return setmetatable({
+				pred = pred,
 				arg = arg,
 				type = FormulaType.PREDICATE,
 			}, {
 				__call = function(self) -- invoke pred function
-					return pred(self.arg.data)
+					if self.arg.type == ValueType.ANY then
+						return false
+					elseif self.arg.type == ValueType.DATA then
+						return self.pred(self.arg.data)
+					end
 				end,
-				__index = Formula,
+				__index = FormulaPredicate,
+				__tostring = function(self)
+					return string.format("Pred{%s(%s)}", tostring(self.pred), tostring(self.arg))
+				end,
 			})
 		end,
 	})
@@ -544,7 +554,34 @@ setmetatable(FormulaPredicate, {
 	__call = function(_, pred)
 		return FormulaPredicate.new(pred)
 	end,
+	__index = Formula,
 })
+
+function FormulaPredicate:clone(cloningType)
+	if cloningType == CloningType.BIDIRECTIONAL then
+		local f = FormulaPredicate(self.pred)(self.arg)
+		if self.parent then
+			self.parent:clone(CloningType.BIDIRECTIONAL, self, f)
+		end
+		return f
+	elseif cloningType == CloningType.SUCCEEDING then
+		return FormulaPredicate(self.pred)(self.arg)
+	end
+end
+
+function FormulaPredicate:fill(caps, cloningType)
+	if cloningType == CloningType.BIDIRECTIONAL then
+		local arg = self.arg:fill(caps)
+		local f = FormulaPredicate(self.pred)(arg)
+		if self.parent then
+			self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+		end
+		return f
+	elseif cloningType == CloningType.SUCCEEDING then
+		local arg = self.arg:fill(caps)
+		return FormulaPredicate(self.pred)(arg)
+	end
+end
 
 -------------------------------------------------
 -- ValueType enum.
@@ -553,7 +590,7 @@ local _ValueType = {
 	ANY  = 2,
 }
 
-local ValueType = setmetatable({}, {
+ValueType = setmetatable({}, {
    __index = function(_, key)
 	   if _ValueType[key] then
 		   return _ValueType[key]
@@ -1017,6 +1054,14 @@ function ReferenceMonitor:_deriveFact(target)
 	end
 end
 
+function ReferenceMonitor:_derivePredicate(target)
+	if target() then
+		return true, {}
+	else
+		return false, nil
+	end
+end
+
 function ReferenceMonitor:_deriveSays(target)
 	-- @TODO : SpeaksFor Rule
 	local function find(formula)
@@ -1060,6 +1105,8 @@ function ReferenceMonitor:derive(target)
 		return self:_deriveResource(target)
 	elseif target.type == FormulaType.FACT then
 		return self:_deriveFact(target)
+	elseif target.type == FormulaType.PREDICATE then
+		return self:_derivePredicate(target)
 	elseif target.type == FormulaType.IMPLICATION then
 
 	elseif target.type == FormulaType.SPEAKS_FOR then
@@ -1070,8 +1117,7 @@ function ReferenceMonitor:derive(target)
 end
 
 return {
-	ValueAny           = ValueAny,
-	ValueData          = ValueData,
+	CloningType        = CloningType,
 	Formula            = Formula,
 	FormulaBinary      = FormulaBinary,
 	FormulaFact        = FormulaFact,
@@ -1085,6 +1131,8 @@ return {
 	PrincipalType      = PrincipalType,
 	PrincipalVariable  = PrincipalVariable,
 	ReferenceMonitor   = ReferenceMonitor,
+	ValueAny           = ValueAny,
+	ValueData          = ValueData,
 	-- Aliases
 	Any                = ValueAny,
 	Data               = ValueData,
