@@ -154,7 +154,7 @@ function TestReferenceMonitor:testDerive_Predicate_1()
 	unit.assertTrue(b)
 end
 
-function TestReferenceMonitor:testDerive_Application1()
+function TestReferenceMonitor:testDerive_Application_1()
 	local isAuthUser = acl.Predicate(function(userInfo)
 		return userInfo.name == "John" and userInfo.pass == "nhoj"
 	end)
@@ -182,6 +182,27 @@ function TestReferenceMonitor:testDerive_Application1()
 	unit.assertTrue(b)
 	unit.assertTrue(contains(capss, acl.PName"C2"))
 	unit.assertTrue(contains(capss, acl.PName"Cnorm"))
+end
+
+function TestReferenceMonitor:testDerive_Application_2()
+	local inRange = acl.Predicate(function(loc)
+		return loc.x < 10 and loc.x > -10 and loc.y < 5 and loc.y > -5
+	end)
+	local rm = acl.ReferenceMonitor()
+	rm:addFormula {
+		acl.PName"MS":says(acl.PName"C1":speaksFor(acl.PName"Cauth"));
+		acl.PName"MS":controls(acl.PVar"Cx":speaksFor(acl.PVar"Cy"));
+		acl.PName"C1":says(acl.Fact"At"{acl.PName"C1", acl.Data{x = 3, y = 4}});
+		acl.PVar"Cx":controls(acl.Fact"At"{acl.PVar"Cx", acl.Any"L"});
+		acl.Fact"At"{acl.PVar"Cx", acl.Any"L"}:land(inRange(acl.Any"L")):land(acl.PVar"Cx":speaksFor(acl.PName"Cauth"))
+			:imp(acl.PVar"Cx":controls(acl.Resource"R"));
+		acl.PName"C1":says(acl.Resource"R");
+	}
+	local
+	b = rm:derive(acl.Resource"R")
+	unit.assertTrue(b)
+	b = rm:derive(acl.Resource"S")
+	unit.assertFalse(b)
 end
 
 os.exit(unit.LuaUnit.run("-v"))
