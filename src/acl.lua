@@ -374,6 +374,35 @@ function FormulaNegation:clone(cloningType, ...)
 	end
 end
 
+function FormulaNegation:fill(caps, cloningType, ...)
+	if cloningType == CloningType.BIDIRECTIONAL then
+		local args = {...}
+		local caller = args[1]
+		local newCaller = args[2]
+		if caller == nil then
+			local operand = self.operand:fill(caps, CloningType.SUCCEEDING)
+			local f = FormulaNegation(operand)
+			if self.parent then
+				self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+			end
+			return f
+		else
+			if caller == self.operand then
+				local f = FormulaNegation(newCaller)
+				if self.parent then
+					self.parent:fill(caps, CloningType.BIDIRECTIONAL, self, f)
+				end
+				return f
+			else
+				error("Filling error")
+			end
+		end
+	elseif cloningType == CloningType.SUCCEEDING then
+		local operand = self.operand:fill(caps, CloningType.SUCCEEDING)
+		return FormulaNegation(operand)
+	end
+end
+
 function FormulaNegation:__tostring()
 	return string.format("\u{00AC} (%s)", tostring(self.expr))
 end
