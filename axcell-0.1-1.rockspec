@@ -16,19 +16,26 @@ description = {
 }
 
 dependencies = {
-
+	"lua >= 5.3",
+	"rxi-json-lua",
 }
 
 build = {
 	type = "builtin",
 	modules = {
 		-- Lua Codes.
+		["axcell"]                         = "src/init.lua",
+		["axcell._detail"]                 = "src/_detail.lua",
+		["axcell.client"]                  = "src/client.lua",
+		["axcell.remote_client"]           = "src/remote_client.lua",
+		["axcell.resource"]                = "src/resource.lua",
+		["axcell.token"]                   = "src/token.lua",
 		["axcell.acl"]                     = "src/acl.lua",
-		["axcell.mqtt"]                    = "src/mqtt.lua",
+		["axcell.mqtt"]                    = "src/mqtt/init.lua",
 		["axcell.mqtt.async_client"]       = "src/mqtt/async_client.lua",
 		["axcell.mqtt.client"]             = "src/mqtt/client.lua",
 		["axcell.mqtt.client_base"]        = "src/mqtt/client_base.lua",
-		["axcell.util"]                    = "src/util.lua",
+		["axcell.util"]                    = "src/util/init.lua",
 		["axcell.util.table"]              = "src/util/table.lua",
 		-- C Codes.
 		["axcell.mqtt.core"] = {
