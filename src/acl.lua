@@ -1181,8 +1181,26 @@ function ReferenceMonitor:_deriveSpeaksFor(target)
 			if b then
 				f = f:fill(caps.rhs)
 				if f.parent then
-					return self:_deriveRecImplication(f.parent)
-				else
+					local b1, capss1 = self:_deriveRecImplication(f.parent)
+					if b1 then
+						if #capss1 > 0 then
+							for _, caps1 in ipairs(capss1) do
+								local f1 = f:fill(caps1)
+								local _, caps2 = f1:match(target)
+								table.insert(capss, caps2.rhs)
+							end
+						else
+							table.insert(capss, caps.lhs)
+						end
+						-- For Transitivity
+						local b2, capss2 = self:derive(PrincipalVariable"__X":speaksFor(f.lhs))
+						if b2 then
+							for _, caps2 in ipairs(capss2) do
+								table.insert(capss, { [target.lhs.name] = caps2["__X"] })
+							end
+						end
+					end
+				else -- Perfect matching
 					table.insert(capss, caps.lhs)
 					-- For Transitivity
 					local b2, capss2 = self:derive(PrincipalVariable"__X":speaksFor(f.lhs))
